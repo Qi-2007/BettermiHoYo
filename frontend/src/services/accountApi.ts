@@ -44,6 +44,9 @@ export default {
   triggerForceRestart() {
     return apiClient.post('/admin/force-restart');
   },
+  triggerShutdown() {
+    return apiClient.post('/admin/shutdown');
+  },
   // 新增
   togglePlugSwitch() {
     return apiClient.post('/admin/plug/toggle');

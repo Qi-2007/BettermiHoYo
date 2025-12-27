@@ -1,6 +1,6 @@
-import vue from '@vitejs/plugin-vue'
+import vue from '@vitejs/plugin-vue';
 import path from 'path'; // 1. 引入 node 的 path 模块
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vite';
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -9,6 +9,16 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+    }
+  },
+  // Dev server proxy: forward /api to backend at localhost:3000
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        secure: false,
+      }
     }
   }
 })

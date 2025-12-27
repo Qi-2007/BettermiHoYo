@@ -44,7 +44,7 @@ const fetchCalendarData = async (date: Date) => {
       let color = 'gray';
       if (item.status === 'SUCCESS') color = 'green';
       if (item.status === 'FAILED') color = 'red';
-      if (item.status === 'PENDING' || item.status === 'RUNNING') color = 'orange';
+      if (item.status === 'PENDING' || item.status === 'RUNNING') color = 'yellow';
 
       return {
         key: item.date,
@@ -107,51 +107,97 @@ onMounted(() => {
 
 <template>
   <el-row :gutter="20">
-    <!-- 左侧日历 -->
-    <el-col :span="14">
-      <el-card>
-        <template #header>
-          <span>任务完成日历</span>
-        </template>
-        <div v-loading="calendarLoading">
-          <Calendar
-            v-model:update-page="month"
-            :v-model="selectedDate"
-            @dayclick="onDayClick"
-            :attributes="attributes"
-            :is-expanded="true"
-            title-position="left"
-            class="custom-calendar"
-          />
-        </div>
+    <!-- 日历区域：手机占满，电脑占左侧 -->
+   <el-col :xs="24" :md="14" class="mb-20">
+      <el-card class="calendar-card" :body-style="{ padding: '0px' }"> <!-- 直接内联样式去 padding -->
+        <template #header><span>任务概览</span></template>
+        <Calendar v-model:update-page="month" :model-value="selectedDate" @dayclick="onDayClick"
+          :attributes="attributes" :is-expanded="true" title-position="left" class="custom-calendar-width" />
       </el-card>
     </el-col>
 
-    <!-- 右侧详情表格 -->
-    <el-col :span="10">
+    <!-- 详情区域：手机占满（在日历下方），电脑占右侧 -->
+    <el-col :xs="24" :md="10">
       <el-card>
         <template #header>
-          <span>{{ toYYYYMMDD(selectedDate) }} 任务详情</span>
+          <span>{{ toYYYYMMDD(selectedDate) }} 详情</span>
         </template>
-        <el-table :data="selectedDayTasks" v-loading="tableLoading" stripe height="500px">
-          <el-table-column v-if="isAdmin" prop="owner" label="所属用户" width="100" />
-          <el-table-column prop="game_type" label="游戏" width="100" />
-          <el-table-column prop="game_username" label="游戏账号" />
-          <el-table-column prop="status" label="状态" width="100" />
-          <el-table-column prop="log_details" label="日志" />
-        </el-table>
+
+        <!-- PC端视图：表格 -->
+        <div class="hidden-xs-only">
+          <el-table :data="selectedDayTasks" stripe height="500px">
+            <!-- ... 原有的列 ... -->
+            <el-table-column prop="game_username" label="账号" />
+            <el-table-column prop="status" label="状态" width="90" />
+            <el-table-column prop="log_details" label="日志" />
+          </el-table>
+        </div>
+
+        <!-- 移动端视图：卡片列表 -->
+        <div class="hidden-sm-and-up">
+          <div v-if="selectedDayTasks.length === 0" style="text-align: center; color: #999; padding: 20px;">
+            本日无任务
+          </div>
+          <div v-for="(task, index) in selectedDayTasks" :key="index" class="mobile-task-card">
+            <div class="mt-header">
+              <span class="mt-user">{{ task.game_username }}</span>
+              <el-tag size="small" :type="task.status === 'SUCCESS' ? 'success' : 'danger'">{{ task.status }}</el-tag>
+            </div>
+            <div class="mt-log">{{ task.log_details || '无日志' }}</div>
+          </div>
+        </div>
       </el-card>
     </el-col>
   </el-row>
 </template>
 
-<style>
-.calendar-container {
-  padding: 10px;
+<style scoped>
+.mb-20 {
+  margin-bottom: 20px;
 }
-.custom-calendar.vc-container {
-  border-radius: 0;
-  border-width: 0;
+
+/* 简单的响应式辅助类 */
+@media (max-width: 768px) {
+  .hidden-xs-only {
+    display: none !important;
+  }
+}
+
+@media (min-width: 769px) {
+  .hidden-sm-and-up {
+    display: none !important;
+  }
+}
+
+.mobile-task-card {
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+  padding: 10px;
+  margin-bottom: 10px;
+  background: #f9f9f9;
+}
+
+.mt-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
+  font-weight: bold;
+}
+
+.mt-log {
+  font-size: 12px;
+  color: #666;
+  word-break: break-all;
+}
+
+.custom-calendar-width {
+  width: 100%;
+  border: none;
+  /* 去掉日历自带边框，融合进卡片 */
+}
+
+/* 深度选择器确保日历内部元素也撑开 */
+:deep(.vc-container) {
   width: 100%;
 }
 </style>

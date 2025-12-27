@@ -2,22 +2,31 @@ const { db } = require('../db/database');
 const { encrypt, decrypt } = require('../utils/crypto');
 
 // 获取当前用户的所有游戏账号
-// 这是修复后的代码
+// ...
 exports.getMyAccounts = (req, res) => {
   const userId = req.user.id;
-  
-  const stmt = db.prepare('SELECT id, game_type, game_username, is_enabled, settings_json FROM GameAccounts WHERE user_id = ?');
+
+  // 1. 获取账号数据
+  const stmt = db.prepare('SELECT id, game_type, game_username, is_enabled FROM GameAccounts WHERE user_id = ?');
   const accountsFromDb = stmt.all(userId);
-  
-  // 在这里进行数据转换
+
+  // 2. 获取游戏类型的映射字典
+  const metaStmt = db.prepare("SELECT option_label, option_value FROM FieldMetadata WHERE field_key = 'game_type'");
+  const gameTypeOptions = metaStmt.all(); // 结果类似: [{option_label: '原神', option_value: 'Genshin'}, ...]
+
+  // 3. 数据转换与映射
   const accountsForClient = accountsFromDb.map(account => {
+    // 查找对应的中文名
+    const match = gameTypeOptions.find(opt => opt.option_value === account.game_type);
+    const label = match ? match.option_label : account.game_type;
+
     return {
       ...account,
-      // 使用 !! 将 1 转换为 true，将 0 转换为 false
-      is_enabled: !!account.is_enabled 
+      is_enabled: !!account.is_enabled,
+      game_type_label: label // <--- 新增字段：带回中文名
     };
   });
-  
+
   res.json(accountsForClient);
 };
 
@@ -91,14 +100,15 @@ exports.getAccountById = (req, res) => {
   // 这是 SQLite 特有的命令，用于获取列名、类型等元数据
   const columnsInfo = db.pragma('table_info(GameAccounts)');
 
-  // 1. 获取字段下拉选项 (之前的 FieldMetadata)
+  // 3. 获取字段下拉选项 (之前的 FieldMetadata)
   const optionsStmt = db.prepare("SELECT * FROM FieldMetadata WHERE table_name = 'GameAccounts' ORDER BY display_order");
   const allOptions = optionsStmt.all();
 
-  // 2. 获取字段显示配置 (新增的 FieldConfig)
+  // 4. 获取字段显示配置 (新增的 FieldConfig)
   const configStmt = db.prepare("SELECT * FROM FieldConfig WHERE table_name = 'GameAccounts'");
   const allConfigs = configStmt.all();
 
+  // 5. 动态构建返回的字段列表
   const ignoredFields = ['id', 'user_id', 'game_password_encrypted', 'settings_json','game_data_json', 'last_game_data_sync']; 
   let dynamicFields = [];
 
@@ -153,12 +163,20 @@ exports.getAccountById = (req, res) => {
   // 按照 display_order 排序
   dynamicFields.sort((a, b) => a.order - b.order);
 
+  // 6. 获取所有元数据以便映射 game_type_label
+  // --- 新增逻辑：计算 game_type_label ---
+  // 在 allOptions 中找 game_type 的映射
+  const typeMatch = allOptions.find(
+    m => m.field_key === 'game_type' && m.option_value === account.game_type
+  );
+  const typeLabel = typeMatch ? typeMatch.option_label : account.game_type;
+
   res.json({
     baseInfo: {
       id: account.id,
       game_username: account.game_username,
-      game_type: account.game_type, // 建议也带上
-      // 关键：把这两个字段透传给前端
+      game_type: account.game_type,
+      game_type_label: typeLabel,   // <--- 新增：用于显示
       game_data_json: account.game_data_json,
       last_game_data_sync: account.last_game_data_sync
     },

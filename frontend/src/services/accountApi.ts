@@ -2,7 +2,7 @@ import { useAuthStore } from '@/stores/auth';
 import axios from 'axios';
 
 const apiClient = axios.create({
-  baseURL: 'http://localhost:3000/api',
+  baseURL: '/api',
 });
 
 // 使用请求拦截器，在每个请求头中自动添加 Token

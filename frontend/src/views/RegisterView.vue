@@ -26,7 +26,7 @@ const handleRegister = async () => {
   loading.value = true;
   try {
     // 调用后端注册接口
-    await axios.post('http://localhost:3000/api/auth/register', {
+    await axios.post('/api/auth/register', {
       username: form.value.username,
       password: form.value.password,
     });

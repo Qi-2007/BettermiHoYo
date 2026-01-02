@@ -61,7 +61,7 @@ const handleLogin = async () => {
         <el-form-item label="密码">
           <el-input v-model="password" type="password" placeholder="Enter your password" show-password />
         </el-form-item>
-        <el-button type="primary" @click="handleLogin" :loading="loading" native-type="submit" style="width: 100%;">
+        <el-button type="primary" :loading="loading" native-type="submit" style="width: 100%;">
           登录
         </el-button>
       </el-form>

@@ -2,11 +2,12 @@
 
 简短说明：本文件为 AI 编码代理提供能立即上手本仓库的关键上下文：架构、常用命令、约定、关键文件与示例。
 
-## 一览（快速上手） ✅
-- 技术栈：Vue 3 + TypeScript + Vite + Pinia + Element Plus
-- 运行：`npm run dev`（vite）；构建：`npm run build`（包含 `vue-tsc -b` 类型检查）；预览：`npm run preview`
-- 代码风格：全部用单文件组件（SFC）+ `<script setup lang="ts">`；使用 Composition API（`ref` / `computed` / 生命周期钩子）。
-- 路径别名：`@` -> `src`（见 `vite.config.ts` / `tsconfig.json`）。
+## 快速上手 ✅
+- 运行：`npm run dev`
+- 构建（含类型检查）：`npm run build`（执行 `vue-tsc -b` 然后 `vite build`）
+- 预览：`npm run preview`
+- 技术栈：Vue 3 + TypeScript + Vite + Pinia + Element Plus（SFC + `<script setup lang="ts">`，Composition API）
+- 路径别名：`@` -> `src`（见 `vite.config.ts` / `tsconfig.json`）
 
 ## 核心架构与边界 🔧
 - 前端职责：管理 UI（账号列表、日历、管理员面板）、发起对后端的控制/管理请求（账号 CRUD、任务查询、远程控制、数据库 DDL）。
@@ -84,5 +85,11 @@
 - “为 `addDatabaseColumn` 增加前端字段名校验（仅允许 `[A-Za-z0-9_]`），并在 UI 中显示用户友好的错误提示，然后提交 DDL 请求。”
 
 ---
+
+## PR 检查清单（提交前） ✅
+- 运行 `npm run build` 确保 `vue-tsc` 类型检查通过。
+- 变更接口时：同步更新 `src/services/accountApi.ts`（或登录逻辑），并在页面层用 `ElMessage` 处理成功/失败。
+- 对高危操作（DDL、关机、强制重启、排插切换）**必须**使用 `ElMessageBox.confirm` 进行确认并优雅处理失败情况。
+- 请在提交时更新 `README.md` 或本文件中有关开发/运行方式的说明（如添加 proxy 或新增脚本）。
 
 如果你愿意，我可以把这些补充直接写入 `README.md` 的“开发环境”部分，或把 `vite` proxy 示例自动应用到 `vite.config.ts`（可指定后端地址）。请告诉我你偏好哪一种，我会继续迭代。欢迎指出任何不完整或需要更多示例的地方。

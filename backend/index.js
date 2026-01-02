@@ -38,6 +38,10 @@ app.use('/api/bgi', bgiRoutes);
 const adminRoutes = require('./src/routes/admin.routes');
 app.use('/api/admin', adminRoutes);
 
+// 新增用户管理路由
+const userRoutes = require('./src/routes/user.routes');
+app.use('/api/users', userRoutes);
+
 // --- Start Server ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

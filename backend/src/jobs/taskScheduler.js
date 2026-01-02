@@ -30,6 +30,26 @@ function generateDailyTasks() {
     // 使用 better-sqlite3 的事务功能，确保操作的原子性
     // 如果中间有任何一步失败，所有操作都会回滚
     const transaction = db.transaction(() => {
+
+      // ============================================================
+      // 新增步骤 0: 清理旧任务 (Overdue Cleanup)
+      // 逻辑：将所有日期小于今天，且状态是 'PENDING', 'RUNNING' 的任务，统一标记为 FAILED
+      // ============================================================
+      const stmtFailOld = db.prepare(`
+        UPDATE DailyTasks
+        SET 
+          status = 'FAILED',
+          -- 如果已有日志，保留并追加；如果没有，直接写入
+          log_details = COALESCE(log_details, '') || '\n[System] 跨天结算：任务未在截止时间内完成，自动标记为失败。',
+          completed_at = datetime('now', 'localtime')
+        WHERE task_date < ? AND status IN ('PENDING', 'RUNNING')
+      `);
+
+      const result = stmtFailOld.run(today);
+      if (result.changes > 0) {
+        console.log(`[Scheduler] 🧹 Auto-failed ${result.changes} overdue tasks from previous days.`);
+      }
+
       // 1. 找出所有启用的游戏账号
       const stmtGetEnabledAccounts = db.prepare('SELECT id FROM GameAccounts WHERE is_enabled = 1');
       const enabledAccounts = stmtGetEnabledAccounts.all();

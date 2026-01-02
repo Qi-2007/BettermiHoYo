@@ -94,10 +94,26 @@ const handleStatusChange = async (row: any) => {
   }
 };
 
-// 退出登录
-const handleLogout = () => {
-  authStore.clearAuth();
-  router.push('/login');
+// 辅助函数：根据状态返回 Tag 类型
+const getStatusType = (status: string) => {
+  switch (status) {
+    case 'SUCCESS': return 'success';
+    case 'FAILED': return 'danger';
+    case 'RUNNING': return 'primary'; // 蓝色
+    case 'PENDING': return 'warning'; // 黄色
+    default: return 'info'; // 灰色 (NONE)
+  }
+};
+
+// 辅助函数：根据状态返回中文
+const getStatusText = (status: string) => {
+  switch (status) {
+    case 'SUCCESS': return '已完成';
+    case 'FAILED': return '失败';
+    case 'RUNNING': return '进行中';
+    case 'PENDING': return '等待中';
+    default: return '未计划';
+  }
 };
 
 // 组件挂载时自动加载数据
@@ -127,6 +143,13 @@ onMounted(() => {
               <template #default="{ row }">{{ row.game_type_label }}</template>
             </el-table-column>
             <el-table-column prop="game_username" label="账号" />
+            <el-table-column label="今日任务" width="100">
+              <template #default="{ row }">
+                <el-tag size="small" :type="getStatusType(row.today_task_status)">
+                  {{ getStatusText(row.today_task_status) }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="状态" width="80">
               <template #default="{ row }">
                 <el-switch v-model="row.is_enabled" size="small" @change="() => handleStatusChange(row)" @click.stop />
@@ -148,9 +171,14 @@ onMounted(() => {
         <div v-for="item in accounts" :key="item.id" class="mobile-card" @click="goToDetail(item)">
           <div class="card-top">
             <div class="game-info">
-             <el-tag size="small">{{ item.game_type_label }}</el-tag>
+              <el-tag size="small" effect="plain">{{ item.game_type_label }}</el-tag>
               <span class="username">{{ item.game_username }}</span>
             </div>
+            <!-- 新增：状态小标签 -->
+            <el-tag size="small" :type="getStatusType(item.today_task_status)" effect="dark"
+              style="margin-left: auto; margin-right: 10px;">
+              {{ getStatusText(item.today_task_status) }}
+            </el-tag>
             <div class="status-switch" @click.stop>
               <el-switch v-model="item.is_enabled" size="default" @change="() => handleStatusChange(item)" />
             </div>

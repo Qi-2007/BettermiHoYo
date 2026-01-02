@@ -23,52 +23,61 @@
 
 ---
 
-## 项目特有约定与实现细节
-- 使用 `better-sqlite3` 的同步接口：`db.prepare(...).get()/all()/run()` 与 `db.transaction()`。请保留事务模式来保证一致性。
-- 动态表单元数据：表 `FieldMetadata`（下拉选项）与 `FieldConfig`（字段显示配置）用于前端动态生成字段；`src/controllers/gameAccount.controller.js` 与 `admin.controller.js` 有示例。
-- Schema 扩展：通过管理员接口 (`POST /api/admin/schema/add-column`) 添加列（控制器做了列名正则校验以避免注入）。添加列后建议同时在 `FieldConfig` 中创建默认记录。
-- 加密：账号明文密码加密使用 `src/utils/crypto.js`（AES-256，密钥基于 `config.JWT_SECRET` 的哈希）。生产环境应使用独立、足够随机的密钥并避免将 secrets 写入源代码。
-- 长耗时任务：按设计应立即返回 202 并在后台执行（参见 `admin.controller.forceRestart`）。
+## ✅ 项目特有约定与实现细节（已扩展）
+- 使用 `better-sqlite3` 的同步接口：`db.prepare(...).get()/all()/run()` 与 `db.transaction()`。所有跨多步 DB 操作应使用事务。
+- 动态表单元数据：`FieldMetadata`（下拉选项）与 `FieldConfig`（字段显示配置）驱动前端 UI；`gameAccount.controller.js` 展示如何组合 `pragma('table_info')`、`FieldMetadata` 与 `FieldConfig` 来动态生成字段列表。
+- Schema 管理：通过管理员接口 `POST /api/admin/schema/add-column` 添加列（实现了列名正则校验防注入）；添加列时请同时更新或创建 `FieldConfig` 以保持前端一致（控制器已有自动插入默认 `FieldConfig` 的逻辑）。
+- 加密与密钥：`src/utils/crypto.js` 使用 AES-256-CBC，加密密钥由 `config.JWT_SECRET` 的 sha256 派生。**生产环境应使用独立的随机 DATA_KEY（环境变量）而非复用 JWT_SECRET。**
+- 长耗时操作：设计为返回 202（Accepted）并在后台执行（示例：`admin.controller.forceRestart`）；避免阻塞请求线程。
+- SmartPlug 与外设：`SmartPlugService` 使用内部 Promise 队列（`#queue`/`#enqueue`）序列化对设备的请求，避免并发冲突；其 IP/凭据当前硬编码在文件中，建议迁移到 `config.js` / 环境变量以便配置管理。
+- Heartbeat：`HeartbeatService` 仅在内存保存状态（重启丢失），若需持久化请扩展 DB 或外部存储。
 
 ---
 
-## 安全 & 配置注意事项
-- 全局配置集中在 `config.js`（`JWT_SECRET`, `BGI_API_KEY`, WOL / plug 配置）。**切勿**在生产环境使用默认 `JWT_SECRET` / `BGI_API_KEY`。
-- BGI-Agent 与前端：
-  - BGI-Agent 使用 `Authorization: Bearer <BGI_API_KEY>` POST `/api/admin/heartbeat`。
-  - 前端使用 `Authorization: Bearer <JWT>` 或 `x-access-token` 访问受保护接口。
-- 创建管理员：注册接口不会赋予 `role='admin'`，需要手动在 DB 中更新 `Users.role`（例如：`UPDATE Users SET role='admin' WHERE username='...'`）。
+## 安全 & 配置注意事项（补充）
+- 主配置：`config.js`（推荐通过 env 注入生产 secrets）。当前默认值仅用于本地开发，**务必在部署前替换**。
+- BGI-Agent 调用：`Authorization: Bearer <BGI_API_KEY>` -> `POST /api/admin/heartbeat`。
+- 管理员角色：注册不赋 admin 权限；使用 SQL 更新 `Users.role` 来提升用户权限（示例：`UPDATE Users SET role='admin' WHERE username='...'`）。
 
 ---
 
-## 常见操作示例
-- 注册 / 登录：
-  - POST `/api/auth/register` { username, password }
-  - POST `/api/auth/login` { username, password } -> 返回 `accessToken` 与 `role`
-- 使用 token：`Authorization: Bearer <accessToken>` 或 `x-access-token: <token>`
-- BGI Agent 心跳：
-  - POST `/api/admin/heartbeat` with `Authorization: Bearer <BGI_API_KEY>` (body = JSON heartbeat)
-- 添加数据库列（管理员）：
-  - POST `/api/admin/schema/add-column` { column_name, data_type, default_value }
+## 调试与常见操作（补充示例）
+- 启动开发：`npm run dev`（观察 SQL 日志和调度器即时执行）
+- 重置 DB：删除 `bgi-panel.db` 并重启服务（仅用于非生产环境）
 
----
+BGI 心跳示例:
+```
+curl -X POST http://localhost:3000/api/admin/heartbeat \
+  -H "Authorization: Bearer <BGI_API_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{"status":"ok"}'
+```
 
-## 调试与测试建议
-- 使用 `npm run dev` 可观察更多实时日志（`better-sqlite3` 被启用 verbose 输出）。
-- 调度器在启动时会立即运行一次 `generateDailyTasks()`（方便测试）。
-- 若需重置 DB，可删除 `bgi-panel.db`（下次启动会重建表）。
-- 与智能硬件交互（SmartPlug/SSH/WOL）通常需要在同一内网并配置正确的 IP/MAC/凭据。
+新增列示例:
+```
+curl -X POST http://localhost:3000/api/admin/schema/add-column \
+  -H "Authorization: Bearer <JWT_ADMIN>" \
+  -H "Content-Type: application/json" \
+  -d '{"column_name":"last_sync","data_type":"TEXT","default_value":""}'
+```
 
 ---
 
 ## 重要文件索引（首选阅读顺序）
-1. `index.js` - 启动与路由
-2. `src/db/database.js` - 模式初始化、DB 接口
-3. `src/jobs/taskScheduler.js` - 每日 task 生成逻辑
-4. `src/controllers/*` - 主要 HTTP 逻辑（`auth`, `admin`, `gameAccount`, `task`, `bgi`）
-5. `src/services/*` - 外设交互（SmartPlug, MachineControl, Heartbeat）
-6. `src/middleware/*` - 验证与授权策略
-7. `config.js` & `package.json` - 配置与启动脚本
+1. `index.js` — 启动顺序与路由挂载
+2. `src/db/database.js` — DB 连接与模式初始化（`verbose: console.log`）
+3. `src/jobs/taskScheduler.js` — 调度（Asia/Shanghai、启动时会立即运行一次）
+4. `src/controllers/*` — 控制器实现（`admin`, `gameAccount`, `auth` 等）
+5. `src/services/*` — 外设交互（`SmartPlugService`, `MachineControlService`, `HeartbeatService`）
+6. `src/middleware/*` — 鉴权中间件（JWT / API Key / isAdmin）
+7. `src/utils/crypto.js` — 数据加密/解密 示例
+
+---
+
+请确认是否要我：
+- 将 `SmartPlugService` 的配置抽取到 `config.js`（并使用 env），
+- 为 `HeartbeatService` 增加 DB 持久化或可选后端，或
+- 将这些更改整理成 PR（包含简单测试与说明文档）。
 
 ---
 

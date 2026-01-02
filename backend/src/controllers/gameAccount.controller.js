@@ -1,32 +1,51 @@
 const { db } = require('../db/database');
 const { encrypt, decrypt } = require('../utils/crypto');
 
+// 获取北京日期的辅助函数 (如果在 taskScheduler.js 里没导出，这里再写一遍)
+function getBeijingDateString() {
+  const beijingTime = new Date().toLocaleString("en-US", { timeZone: "Asia/Shanghai" });
+  const date = new Date(beijingTime);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // 获取当前用户的所有游戏账号
-// ...
 exports.getMyAccounts = (req, res) => {
   const userId = req.user.id;
+  const today = getBeijingDateString(); // 获取今天的日期
+  
+  // 1. 获取账号数据 + 今天的任务状态
+  // 使用 LEFT JOIN：即使今天没有生成任务，也能查出账号
+  const stmt = db.prepare(`
+    SELECT 
+      G.id, G.game_type, G.game_username, G.is_enabled, 
+      T.status as today_task_status
+    FROM GameAccounts G
+    LEFT JOIN DailyTasks T ON G.id = T.game_account_id AND T.task_date = ?
+    WHERE G.user_id = ?
+  `);
+  
+  const accountsFromDb = stmt.all(today, userId);
 
-  // 1. 获取账号数据
-  const stmt = db.prepare('SELECT id, game_type, game_username, is_enabled FROM GameAccounts WHERE user_id = ?');
-  const accountsFromDb = stmt.all(userId);
-
-  // 2. 获取游戏类型的映射字典
+  // 2. 获取映射字典
   const metaStmt = db.prepare("SELECT option_label, option_value FROM FieldMetadata WHERE field_key = 'game_type'");
-  const gameTypeOptions = metaStmt.all(); // 结果类似: [{option_label: '原神', option_value: 'Genshin'}, ...]
+  const gameTypeOptions = metaStmt.all();
 
-  // 3. 数据转换与映射
+  // 3. 数据转换
   const accountsForClient = accountsFromDb.map(account => {
-    // 查找对应的中文名
     const match = gameTypeOptions.find(opt => opt.option_value === account.game_type);
     const label = match ? match.option_label : account.game_type;
 
     return {
       ...account,
       is_enabled: !!account.is_enabled,
-      game_type_label: label // <--- 新增字段：带回中文名
+      game_type_label: label, // 带回中文名
+      today_task_status: account.today_task_status || 'NONE' // 如果没有任务记录，返回 '无任务' 或 null，方便前端判断
     };
   });
-
+  
   res.json(accountsForClient);
 };
 

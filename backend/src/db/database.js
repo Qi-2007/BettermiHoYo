@@ -67,8 +67,8 @@ function initDb() {
     ${createUsersTable}
     ${createGameAccountsTable}
     ${createDailyTasksTable}
-    ${createFieldMetadataTable} -- 新增
-    ${createFieldConfigTable} -- 新增
+    ${createFieldMetadataTable}
+    ${createFieldConfigTable}
   `);
 
   console.log('Database initialized successfully.');

@@ -22,6 +22,13 @@ const newOption = ref({ field_key: '', option_label: '', option_value: '' });
 const newColumn = ref({ name: '', type: 'TEXT', default: '' });
 const isAddingColumn = ref(false);
 
+// --- 用户管理状态 ---
+const users = ref<any[]>([]);
+const newUser = ref({ username: '', password: '', role: 'user' });
+const passwordDialogVisible = ref(false);
+const tempPassword = ref('');
+const editingUserId = ref<number | null>(null);
+
 // --- 1. 系统监控与控制逻辑 ---
 
 const fetchStatus = async () => {
@@ -171,11 +178,60 @@ const handleAddColumn = () => {
       }
     });
 };
+// --- 3. 用户管理逻辑 ---
+// 加载用户
+const fetchUsers = async () => {
+  try {
+    const res = await api.getAllUsers();
+    users.value = res.data;
+  } catch (e) { console.error(e); }
+};
+
+// 创建用户
+const handleCreateUser = async () => {
+  if (!newUser.value.username || !newUser.value.password) return ElMessage.warning('信息不完整');
+  try {
+    await api.createUser(newUser.value);
+    ElMessage.success('用户创建成功');
+    fetchUsers();
+    newUser.value = { username: '', password: '', role: 'user' };
+  } catch (e: any) { ElMessage.error(e.response?.data?.message || '失败'); }
+};
+
+// 删除用户
+const handleDeleteUser = async (row: any) => {
+  ElMessageBox.confirm(`确定删除用户 ${row.username} 吗？`, '警告', { type: 'warning' })
+    .then(async () => {
+      try {
+        await api.deleteUser(row.id);
+        ElMessage.success('已删除');
+        fetchUsers();
+      } catch (e: any) { ElMessage.error(e.response?.data?.message || '失败'); }
+    });
+};
+
+// 打开改密对话框
+const openPassDialog = (id: number) => {
+  editingUserId.value = id;
+  tempPassword.value = '';
+  passwordDialogVisible.value = true;
+};
+
+// 提交改密
+const handleResetPass = async () => {
+  if (!tempPassword.value || editingUserId.value === null) return;
+  try {
+    await api.resetUserPassword(editingUserId.value, tempPassword.value);
+    ElMessage.success('密码修改成功');
+    passwordDialogVisible.value = false;
+  } catch (e) { ElMessage.error('修改失败'); }
+};
 
 // --- 生命周期 ---
 onMounted(() => {
   fetchStatus();
   fetchMetadata();
+  fetchUsers();
   pollInterval = setInterval(fetchStatus, 5000);
 });
 
@@ -332,7 +388,49 @@ onUnmounted(() => {
             </el-card>
           </el-col>
         </el-row>
+      </el-tab-pane>
+      <!-- Tab 3: 用户管理 -->
+      <el-tab-pane label="用户权限管理" name="users">
+        <el-card class="mb-20">
+          <template #header><span>添加新用户</span></template>
+          <div class="flex-wrap-box">
+            <el-input v-model="newUser.username" placeholder="用户名" class="input-item" />
+            <el-input v-model="newUser.password" placeholder="密码" class="input-item" type="password" show-password />
+            <el-select v-model="newUser.role" placeholder="角色" class="select-item">
+              <el-option label="普通用户" value="user" />
+              <el-option label="管理员" value="admin" />
+            </el-select>
+            <el-button type="primary" :icon="Plus" @click="handleCreateUser">创建</el-button>
+          </div>
+        </el-card>
 
+        <el-card>
+          <el-table :data="users" stripe>
+            <el-table-column prop="id" label="ID" width="60" />
+            <el-table-column prop="username" label="用户名" />
+            <el-table-column prop="role" label="角色">
+              <template #default="{ row }">
+                <el-tag :type="row.role === 'admin' ? 'danger' : ''">{{ row.role }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="created_at" label="创建时间" width="180" />
+            <el-table-column label="操作" width="200">
+              <template #default="{ row }">
+                <el-button size="small" @click="openPassDialog(row.id)">改密</el-button>
+                <el-button size="small" type="danger" @click="handleDeleteUser(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+
+        <!-- 改密弹窗 -->
+        <el-dialog v-model="passwordDialogVisible" title="重置密码" width="300px">
+          <el-input v-model="tempPassword" placeholder="输入新密码" type="password" show-password />
+          <template #footer>
+            <el-button @click="passwordDialogVisible = false">取消</el-button>
+            <el-button type="primary" @click="handleResetPass">确定</el-button>
+          </template>
+        </el-dialog>
       </el-tab-pane>
     </el-tabs>
   </div>

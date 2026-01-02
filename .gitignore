@@ -1,3 +1,5 @@
 backend/node_modules/
 frontend/node_modules/
 backend/bgi-panel.db
+frontend.code-workspace
+backend.code-workspace

@@ -217,7 +217,7 @@ exports.reportTask = (req, res) => {
 
       if (currentTask.retry_count < maxRetries) {
         // 重试：追加系统提示
-        const retryLog = logToAppend + `\n[System] 任务失败，进入重试队列 (${currentTask.retry_count + 1}/${maxRetries})...`;
+        const retryLog = logToAppend + `[System] 任务失败，进入重试队列 (${currentTask.retry_count + 1}/${maxRetries})...\n`;
 
         db.prepare(`
           UPDATE DailyTasks 
@@ -231,7 +231,7 @@ exports.reportTask = (req, res) => {
         console.log(`Task ${taskId} scheduled for retry.`);
       } else {
         // 彻底失败
-        const failLog = logToAppend + `\n[System] 达到最大重试次数，任务彻底失败。`;
+        const failLog = logToAppend + `[System] 达到最大重试次数，任务彻底失败。\n`;
 
         db.prepare(`
           UPDATE DailyTasks 

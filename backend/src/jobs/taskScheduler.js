@@ -40,7 +40,7 @@ function generateDailyTasks() {
         SET 
           status = 'FAILED',
           -- 如果已有日志，保留并追加；如果没有，直接写入
-          log_details = COALESCE(log_details, '') || '\n[System] 跨天结算：任务未在截止时间内完成，自动标记为失败。',
+          log_details = COALESCE(log_details, '') || '[System] 跨天结算：任务未在截止时间内完成，自动标记为失败。\n',
           completed_at = datetime('now', 'localtime')
         WHERE task_date < ? AND status IN ('PENDING', 'RUNNING')
       `);

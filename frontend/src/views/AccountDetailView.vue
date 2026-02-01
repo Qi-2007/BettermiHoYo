@@ -239,5 +239,6 @@ onMounted(loadData);
     color: #606266;
     line-height: 1.4;
     word-break: break-all;
+    white-space: pre-wrap; /* 保留换行 */
 }
 </style>

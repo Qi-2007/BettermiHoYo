@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useAuthStore } from '@/stores/auth';
 import { CaretBottom, UserFilled } from '@element-plus/icons-vue'; // 需要引入图标
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 const route = useRoute();
@@ -18,6 +18,25 @@ const handleLogout = () => {
   authStore.clearAuth();
   router.push('/login');
 };
+
+// 监听路由变化，自动修正 Tab 的选中状态
+watch(
+  () => route.name,
+  (newRouteName) => {
+    // 我们的 Tab name 定义是：'home', 'calendar', 'admin'
+    // 但详情页的 route name 是 'account-detail'
+    // 所以我们需要做一个简单的映射：如果是详情页，也让它高亮 'home' (或者您想让它高亮别的也可以)
+
+    if (newRouteName === 'account-detail') {
+      activeTab.value = 'home'; // 详情页归属于“账号管理”Tab
+    } else if (newRouteName && ['home', 'calendar', 'admin'].includes(newRouteName.toString())) {
+      activeTab.value = newRouteName.toString();
+    }
+    // 其他情况保持不变
+  },
+  { immediate: true } // 立即执行一次，确保刷新页面时也正确
+);
+
 </script>
 
 <template>

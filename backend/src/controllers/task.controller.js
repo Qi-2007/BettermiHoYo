@@ -97,7 +97,7 @@ exports.getTasksByDate = (req, res) => {
   if (role === 'admin') {
     // 管理员：获取指定日期的所有任务
     query = `
-      SELECT G.game_type, G.game_username, T.status, T.log_details, U.username as owner
+      SELECT G.id as account_id, G.game_type, G.game_username, T.status, T.log_details, U.username as owner
       FROM DailyTasks AS T
       JOIN GameAccounts AS G ON T.game_account_id = G.id
       JOIN Users AS U ON G.user_id = U.id
@@ -107,7 +107,7 @@ exports.getTasksByDate = (req, res) => {
   } else {
     // 普通用户：只获取自己账号在指定日期的任务
     query = `
-      SELECT G.game_type, G.game_username, T.status, T.log_details
+      SELECT G.id as account_id, G.game_type, G.game_username, T.status, T.log_details
       FROM DailyTasks AS T
       JOIN GameAccounts AS G ON T.game_account_id = G.id
       WHERE T.task_date = ? AND G.user_id = ?
@@ -126,13 +126,18 @@ exports.getTasksByDate = (req, res) => {
 };
 
 exports.getTasksByAccountId = (req, res) => {
-  const userId = req.user.id;
+  const userId = req.user.id; 
+  const userRole = req.user.role; // 获取当前用户角色
   const accountId = req.params.accountId;
 
-  // 确保只能查询属于自己的账号的任务
-  const stmtCheck = db.prepare('SELECT id FROM GameAccounts WHERE id = ? AND user_id = ?');
-  if (!stmtCheck.get(accountId, userId)) {
-    return res.status(403).send({ message: "无权访问" });
+  // 1. 权限检查
+  // 如果是 admin，直接跳过，拥有上帝权限
+  if (userRole !== 'admin') {
+    // 只有当不是管理员时，才去检查这个账号是不是属于当前用户
+    const stmtCheck = db.prepare('SELECT id FROM GameAccounts WHERE id = ? AND user_id = ?');
+    if (!stmtCheck.get(accountId, userId)) {
+      return res.status(403).send({ message: "无权访问此账号的任务记录" });
+    }
   }
 
   const stmt = db.prepare('SELECT * FROM DailyTasks WHERE game_account_id = ? ORDER BY task_date DESC');

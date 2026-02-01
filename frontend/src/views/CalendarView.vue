@@ -5,7 +5,13 @@ import { ElMessage } from 'element-plus';
 import { Calendar } from 'v-calendar';
 import 'v-calendar/dist/style.css';
 import { computed, onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
+const router = useRouter();
 
+const goToAccountDetail = (accountId: number) => {
+  // 跳转到我们在 AccountDetailView 定义的路由
+  router.push({ name: 'account-detail', params: { id: accountId } });
+};
 const authStore = useAuthStore();
 const isAdmin = computed(() => authStore.user?.role === 'admin');
 
@@ -128,7 +134,15 @@ onMounted(() => {
         <div class="hidden-xs-only">
           <el-table :data="selectedDayTasks" stripe height="500px">
             <!-- ... 原有的列 ... -->
-            <el-table-column prop="game_username" label="账号" />
+           <el-table-column label="账号">
+              <template #default="{ row }">
+                <!-- 变成蓝色链接样式，点击跳转 -->
+                <span style="color: #409eff; cursor: pointer; text-decoration: underline;"
+                  @click="goToAccountDetail(row.account_id)">
+                  {{ row.game_username }}
+                </span>
+              </template>
+            </el-table-column>
             <el-table-column prop="status" label="状态" width="90" />
             <el-table-column prop="log_details" label="日志" />
           </el-table>
@@ -141,7 +155,9 @@ onMounted(() => {
           </div>
           <div v-for="(task, index) in selectedDayTasks" :key="index" class="mobile-task-card">
             <div class="mt-header">
-              <span class="mt-user">{{ task.game_username }}</span>
+              <span class="mt-user" style="color: #409eff;" @click="goToAccountDetail(task.account_id)">
+                {{ task.game_username }}
+              </span>
               <el-tag size="small" :type="task.status === 'SUCCESS' ? 'success' : 'danger'">{{ task.status }}</el-tag>
             </div>
             <div class="mt-log">{{ task.log_details || '无日志' }}</div>

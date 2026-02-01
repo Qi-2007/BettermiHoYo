@@ -27,19 +27,52 @@ const toYYYYMMDD = (d: Date) => {
   return `${y}-${m}-${day}`;
 };
 
-// 将 Date 对象格式化为 YYYY-MM
-const toYYYYMM = (d: Date) => {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  return `${y}-${m}`;
+// 获取指定日期的任务详情
+const fetchTasksForDate = async (date: Date) => {
+  tableLoading.value = true;
+  try {
+    const response = await api.getTasksByDate(toYYYYMMDD(date));
+    selectedDayTasks.value = response.data;
+  } catch (error) {
+    ElMessage.error('加载任务详情失败');
+  } finally {
+    tableLoading.value = false;
+  }
 };
 
+// 日历日期点击事件处理函数
+const onDayClick = (day: any) => {
+  // day 对象是 v-calendar 传出的，我们只需要里面的 .date 属性
+  selectedDate.value = day.date;
+  // 当这行代码执行后，下面的 watch 就会被自动触发
+};
+
+// --- Watchers ---
+// 当用户点击选择新日期时，重新加载表格数据
+watch(() => selectedDate.value, (newDate) => {
+  if (newDate) {
+    fetchTasksForDate(newDate);
+  }
+}, { immediate: true }); // immediate: true 确保页面首次加载时就执行一次
+
+// 当月份变化时，重新加载日历数据
+const onPageMove = (pages: any[]) => {
+  if (pages && pages.length > 0) {
+    // page 对象包含 month 和 year，例如 { month: 11, year: 2023 }
+    const page = pages[0];
+    // 构造 YYYY-MM 格式字符串
+    const monthStr = `${page.year}-${String(page.month).padStart(2, '0')}`;
+
+    // 调用 API
+    fetchCalendarData(monthStr);
+  }
+};
 
 // 获取日历高亮数据
-const fetchCalendarData = async (date: Date) => {
+const fetchCalendarData = async (monthStr: string) => {
   calendarLoading.value = true;
   try {
-    const response = await api.getCalendar(toYYYYMM(date));
+    const response = await api.getCalendar(monthStr);
     attributes.value = response.data.map((item: any) => {
       let color = 'gray';
       if (item.status === 'SUCCESS') color = 'green';
@@ -64,43 +97,11 @@ const fetchCalendarData = async (date: Date) => {
   }
 };
 
-// 获取指定日期的任务详情
-const fetchTasksForDate = async (date: Date) => {
-  tableLoading.value = true;
-  try {
-    const response = await api.getTasksByDate(toYYYYMMDD(date));
-    selectedDayTasks.value = response.data;
-  } catch (error) {
-    ElMessage.error('加载任务详情失败');
-  } finally {
-    tableLoading.value = false;
-  }
-};
-
-// 新增：日历日期点击事件处理函数
-const onDayClick = (day: any) => {
-  // day 对象是 v-calendar 传出的，我们只需要里面的 .date 属性
-  selectedDate.value = day.date;
-  // 当这行代码执行后，下面的 watch 就会被自动触发
-};
-
-// --- Watchers ---
-// 当用户切换日历月份时，重新加载高亮数据
-watch(() => month.value, (newMonth) => {
-  fetchCalendarData(newMonth);
-});
-
-// 当用户点击选择新日期时，重新加载表格数据
-watch(() => selectedDate.value, (newDate) => {
-  if (newDate) {
-    fetchTasksForDate(newDate);
-  }
-}, { immediate: true }); // immediate: true 确保页面首次加载时就执行一次
-
-
-// 页面首次加载时获取当前月份的数据
+// onMounted 时获取当前月份
 onMounted(() => {
-  fetchCalendarData(month.value);
+  const now = new Date();
+  const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  fetchCalendarData(currentMonthStr);
 });
 
 </script>
@@ -111,8 +112,8 @@ onMounted(() => {
    <el-col :xs="24" :md="14" class="mb-20">
       <el-card class="calendar-card" :body-style="{ padding: '0px' }"> <!-- 直接内联样式去 padding -->
         <template #header><span>任务概览</span></template>
-        <Calendar v-model:update-page="month" :model-value="selectedDate" @dayclick="onDayClick"
-          :attributes="attributes" :is-expanded="true" title-position="left" class="custom-calendar-width" />
+        <Calendar ref="calendarRef" :attributes="attributes" :is-expanded="true" title-position="left"
+          class="custom-calendar-width" @dayclick="onDayClick" @did-move="onPageMove" />
       </el-card>
     </el-col>
 

@@ -2,11 +2,12 @@
 import accountApi from '@/services/accountApi';
 import { useAuthStore } from '@/stores/auth';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
 // -- 状态管理 --
 const authStore = useAuthStore();
+const isAdmin = computed(() => authStore.user?.role === 'admin');
 const router = useRouter();
 const gameTypeOptions = ref<any[]>([]);
 const accounts = ref<any[]>([]); // 存放游戏账号列表
@@ -141,6 +142,12 @@ onMounted(() => {
           <el-table :data="accounts" stripe style="width: 100%" @row-click="goToDetail">
             <el-table-column prop="id" label="ID" width="60" /><el-table-column label="游戏" width="100">
               <template #default="{ row }">{{ row.game_type_label }}</template>
+            </el-table-column>
+            <el-table-column v-if="isAdmin" prop="owner_name" label="所属用户" width="100">
+              <template #default="{ row }">
+                <!-- 为了明显，可以用个 Tag -->
+                <el-tag type="info" size="small">{{ row.owner_name }}</el-tag>
+              </template>
             </el-table-column>
             <el-table-column prop="game_username" label="账号" />
             <el-table-column label="今日任务" width="100">

@@ -14,20 +14,31 @@ function getBeijingDateString() {
 // 获取当前用户的所有游戏账号
 exports.getMyAccounts = (req, res) => {
   const userId = req.user.id;
+  const userRole = req.user.role;
   const today = getBeijingDateString(); // 获取今天的日期
   
   // 1. 获取账号数据 + 今天的任务状态
   // 使用 LEFT JOIN：即使今天没有生成任务，也能查出账号
-  const stmt = db.prepare(`
+
+  let query = `
     SELECT 
-      G.id, G.game_type, G.game_username, G.is_enabled, 
+      G.id, G.game_type, G.game_username, G.is_enabled, G.user_id, U.username as owner_name,
       T.status as today_task_status
     FROM GameAccounts G
     LEFT JOIN DailyTasks T ON G.id = T.game_account_id AND T.task_date = ?
-    WHERE G.user_id = ?
-  `);
-  
-  const accountsFromDb = stmt.all(today, userId);
+    LEFT JOIN Users U ON G.user_id = U.id
+  `;
+
+  const params = [today];
+
+  // 如果不是管理员，只看自己的
+  if (userRole !== 'admin') {
+    query += ' WHERE G.user_id = ?';
+    params.push(userId);
+  }
+
+  const stmt = db.prepare(query);
+  const accountsFromDb = stmt.all(...params);
 
   // 2. 获取映射字典
   const metaStmt = db.prepare("SELECT option_label, option_value FROM FieldMetadata WHERE field_key = 'game_type'");
@@ -105,14 +116,25 @@ exports.updateAccount = (req, res) => {
 // 获取单个账号详情
 exports.getAccountById = (req, res) => {
   const userId = req.user.id;
+  const userRole = req.user.role; // 获取当前用户角色
   const accountId = req.params.id;
+  
+  // 构建查询条件
+  let query = 'SELECT * FROM GameAccounts WHERE id = ?';
+  let params = [accountId];
+
+  // 如果不是管理员，添加 user_id 限制
+  if (userRole !== 'admin') {
+    query += ' AND user_id = ?';
+    params.push(userId);
+  }
 
   // 1. 获取账号的当前数据
-  const stmt = db.prepare('SELECT * FROM GameAccounts WHERE id = ? AND user_id = ?');
-  const account = stmt.get(accountId, userId);
+  const stmt = db.prepare(query);
+  const account = stmt.get(...params); // 使用 spread operator 传入参数
 
   if (!account) {
-    return res.status(404).send({ message: "账号不存在" });
+    return res.status(404).send({ message: "账号不存在或无权访问" });
   }
 
   // 2. 获取表结构信息 (Pragma info)

@@ -28,7 +28,7 @@ class HeartbeatService {
 
     return {
       isConnected: isConnected,
-      lastSeen: state.lastHeartbeat ? state.lastHeartbeat.toISOString() : null,
+      lastSeen: state.lastHeartbeat ? state.lastHeartbeat.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : null,
       data: isConnected ? state.data : null, // 如果断连，则不发送旧数据
     };
   }

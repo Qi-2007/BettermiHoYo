@@ -20,7 +20,7 @@ router.get('/status', [verifyToken, isAdmin], controller.getSystemStatus);
 router.post('/plug/toggle', [verifyToken, isAdmin], controller.togglePlug); // <-- 新增路由
 router.post('/shutdown', [verifyToken, isAdmin], controller.shutdown); // <-- 新增路由
 // 字段选项 (下拉菜单)
-router.get('/metadata', [verifyToken, isAdmin], controller.getFieldOptions);
+router.get('/metadata', [verifyToken], controller.getFieldOptions);
 router.post('/metadata', [verifyToken, isAdmin], controller.addFieldOption);
 router.delete('/metadata/:id', [verifyToken, isAdmin], controller.deleteFieldOption);
 // 新增：字段本身配置 (名称、类型)

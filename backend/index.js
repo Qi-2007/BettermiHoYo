@@ -48,3 +48,13 @@ app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}.`);
   console.log(`Access it at http://localhost:${PORT}`);
 });
+
+app.use((err, req, res, next) => {
+  // 如果错误是 SyntaxError 并且是 JSON 解析阶段出的错
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    console.error('JSON 解析失败，收到非法数据:', err.message);
+    // 返回 400 Bad Request，而不是让服务器崩溃
+    return res.status(400).send({ message: "请求体 JSON 格式错误 (Invalid JSON)" });
+  }
+  next();
+});

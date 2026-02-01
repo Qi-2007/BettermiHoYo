@@ -39,6 +39,7 @@ function initDb() {
       log_details TEXT,
       started_at DATETIME,
       completed_at DATETIME,
+      retry_count INTEGER DEFAULT 0,
       FOREIGN KEY (game_account_id) REFERENCES GameAccounts (id)
     );
   `;

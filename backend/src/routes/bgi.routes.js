@@ -8,6 +8,9 @@ router.use(verifyApiKey);
 
 router.get('/next-task', controller.getNextTask);
 router.post('/report', controller.reportTask);
-router.post('/update-data', controller.updateGameData); // 新增路由
+router.post('/update-data', controller.updateGameData);
+router.get('/kv', controller.getAccountKV);
+router.post('/kv', controller.updateAccountKV);
+router.post('/log', controller.appendLog);
 
 module.exports = router;

@@ -128,7 +128,7 @@ exports.getAccountById = (req, res) => {
   const allConfigs = configStmt.all();
 
   // 5. 动态构建返回的字段列表
-  const ignoredFields = ['id', 'user_id', 'game_password_encrypted', 'settings_json','game_data_json', 'last_game_data_sync']; 
+  const ignoredFields = ['id', 'user_id', 'game_password_encrypted', 'settings_json', 'game_data_json', 'last_game_data_sync', 'game_MIHOYOSDK']; 
   let dynamicFields = [];
 
   for (const col of columnsInfo) {

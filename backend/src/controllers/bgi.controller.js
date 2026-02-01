@@ -2,21 +2,62 @@ const { db } = require('../db/database');
 const { decrypt } = require('../utils/crypto'); // 引入解密工具
 
 exports.getNextTask = (req, res) => {
+  const { type } = req.query;
+
   try {
     let task = null;
 
-    // 使用事务来确保“查询”和“更新状态”的原子性
-    // 防止多个 BGI 客户端（如果未来有的话）同时取到同一个任务
     const transaction = db.transaction(() => {
-      // 1. 查找一个 PENDING 状态的任务，按 ID 排序确保顺序
-      const stmtFind = db.prepare("SELECT * FROM DailyTasks WHERE status = 'PENDING' ORDER BY id LIMIT 1");
-      const foundTask = stmtFind.get();
+      // 优先级策略：
+      // 1. 优先找 'RUNNING' 的任务 (假设是崩溃后重启，或者超时任务)
+      //    为了防止抢走正在正常运行的任务，我们可以加一个时间判断：started_at -- 只有运行超过5分钟未完成的才会被重新接取
+      //    或者如果您确定只有单一 BmHY 实例，可以直接取 RUNNING
+      // 2. 其次找 'PENDING' 且 retry_count = 0 (新任务)
+      // 3. 最后找 'PENDING' 且 retry_count > 0 (重试任务)
 
-      if (!foundTask) {
-        return; // 没有找到待处理任务
+      // 我们用 CASE WHEN 语句来定义自定义排序权重
+      let query = `
+        SELECT T.* 
+        FROM DailyTasks T 
+        JOIN GameAccounts G ON T.game_account_id = G.id 
+        WHERE (
+          (T.status = 'RUNNING' AND T.started_at < datetime('now', '-5 minutes', 'localtime'))
+          OR T.status = 'PENDING'
+        )
+      `;
+
+      const params = [];
+
+      if (type) {
+        query += " AND G.game_type = ?";
+        params.push(type);
       }
 
-      // 2. 立刻更新任务状态为 RUNNING
+      // 排序逻辑：
+      // 优先级 1: RUNNING (超时捡漏) -> 权重 1
+      // 优先级 2: PENDING & retry=0 (新任务) -> 权重 2
+      // 优先级 3: PENDING & retry>0 (重试任务) -> 权重 3
+      // 同权重下按 ID 顺序
+      query += `
+        ORDER BY 
+          CASE 
+            WHEN T.status = 'RUNNING' THEN 1
+            WHEN T.status = 'PENDING' AND T.retry_count = 0 THEN 2
+            ELSE 3
+          END ASC,
+          T.id ASC
+        LIMIT 1
+      `;
+
+      const stmtFind = db.prepare(query);
+      const foundTask = stmtFind.get(...params);
+
+      if (!foundTask) {
+        return;
+      }
+
+      // 锁定/更新任务
+      // 不管之前是 RUNNING 还是 PENDING，现在重新标记开始时间
       const stmtUpdate = db.prepare("UPDATE DailyTasks SET status = 'RUNNING', started_at = CURRENT_TIMESTAMP WHERE id = ?");
       stmtUpdate.run(foundTask.id);
 
@@ -27,7 +68,7 @@ exports.getNextTask = (req, res) => {
 
     if (!task) {
       // 如果没有任务，返回 204 No Content，BGI 客户端收到后就知道可以关机了
-      return res.status(204).send();
+      return res.status(204).send({ message: 'No tasks available at the moment.' });
     }
 
     // 3. 任务找到了，现在需要关联查询游戏账号的详细信息
@@ -128,49 +169,85 @@ exports.updateGameData = (req, res) => {
     res.status(500).send({ message: "服务器内部错误" });
   }
 };
-
 exports.reportTask = (req, res) => {
-  const { taskId, status, logDetails, gameData } = req.body; // <-- 增加 gameData 参数
+  const { taskId, status, logDetails, data } = req.body;
 
   if (!taskId || !status || !['SUCCESS', 'FAILED'].includes(status)) {
     return res.status(400).send({ message: 'Invalid request body. Requires taskId and status (SUCCESS/FAILED).' });
   }
 
-  try {
-    // 1. 查找任务，并确认它当前是 RUNNING 状态
-    const stmtFind = db.prepare("SELECT id FROM DailyTasks WHERE id = ? AND status = 'RUNNING'");
-    const task = stmtFind.get(taskId);
+  const transaction = db.transaction(() => {
+    // 先查一下当前任务
+    // 我们顺便查出 game_account_id，因为后面更新 data 需要用到
+    const currentTask = db.prepare("SELECT game_account_id, retry_count FROM DailyTasks WHERE id = ?").get(taskId);
 
-    if (!task) {
-      return res.status(404).send({ message: 'Task not found or its status is not RUNNING. Maybe it was already completed or timed out.' });
+    if (!currentTask) {
+      return; // 任务不存在
     }
 
-    // 2. 更新任务状态和日志
-
-    const transaction = db.transaction(() => {
-      // 1. 更新任务状态
-      const stmtUpdateTask = db.prepare(`
-      UPDATE DailyTasks 
-      SET status = ?, log_details = ?, completed_at = datetime('now', 'localtime') 
-      WHERE id = ?
-    `);
-      stmtUpdateTask.run(status, logDetails || '', taskId);
-
-      // 2. 如果请求里带了 gameData，顺便更新账号信息
-      if (gameData) {
-        // 先查出 accountId
-        const task = db.prepare("SELECT game_account_id FROM DailyTasks WHERE id = ?").get(taskId);
-        if (task) {
-          const stmtUpdateAccount = db.prepare(`
+    if (data) {
+      try {
+        const stmtUpdateAccount = db.prepare(`
           UPDATE GameAccounts 
           SET game_data_json = ?, last_game_data_sync = datetime('now', 'localtime')
           WHERE id = ?
         `);
-          stmtUpdateAccount.run(JSON.stringify(gameData), task.game_account_id);
-        }
+        stmtUpdateAccount.run(JSON.stringify(data), currentTask.game_account_id);
+      } catch (e) {
+        console.error("Failed to update game data in reportTask:", e);
+        // 数据更新失败不应该阻断任务状态更新，所以这里 catch 住不抛出
       }
-    });
+    }
 
+    const logToAppend = logDetails ? `\n${logDetails}` : '';
+
+    if (status === 'SUCCESS') {
+      // 成功：追加日志，标记完成
+      db.prepare(`
+        UPDATE DailyTasks 
+        SET 
+          status = 'SUCCESS', 
+          log_details = COALESCE(log_details, '') || ?, 
+          completed_at = datetime('now', 'localtime')
+        WHERE id = ?
+      `).run(logToAppend, taskId);
+
+    } else if (status === 'FAILED') {
+      const maxRetries = 3;
+
+      if (currentTask.retry_count < maxRetries) {
+        // 重试：追加系统提示
+        const retryLog = logToAppend + `\n[System] 任务失败，进入重试队列 (${currentTask.retry_count + 1}/${maxRetries})...`;
+
+        db.prepare(`
+          UPDATE DailyTasks 
+          SET 
+            status = 'PENDING', 
+            retry_count = retry_count + 1, 
+            log_details = COALESCE(log_details, '') || ? 
+          WHERE id = ?
+        `).run(retryLog, taskId);
+
+        console.log(`Task ${taskId} scheduled for retry.`);
+      } else {
+        // 彻底失败
+        const failLog = logToAppend + `\n[System] 达到最大重试次数，任务彻底失败。`;
+
+        db.prepare(`
+          UPDATE DailyTasks 
+          SET 
+            status = 'FAILED', 
+            log_details = COALESCE(log_details, '') || ?, 
+            completed_at = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(failLog, taskId);
+
+        console.log(`Task ${taskId} failed permanently.`);
+      }
+    }
+  });
+
+  try {
     transaction();
     console.log(`[BGI Controller] Task ${taskId} reported as ${status}.`);
     res.status(200).send({ message: 'Report received.' });
@@ -178,5 +255,101 @@ exports.reportTask = (req, res) => {
   } catch (error) {
     console.error('[BGI Controller] Error in reportTask:', error);
     res.status(500).send({ message: 'Internal server error while reporting task.' });
+  }
+};
+
+// 获取指定任务对应账号的某个字段值
+exports.getAccountKV = (req, res) => {
+  const { taskId, key } = req.query;
+
+  if (!taskId || !key) return res.status(400).send({ message: "taskId 和 key 必填" });
+
+  // 为了安全，我们可以限制只允许读取某些特定的前缀字段，或者允许读取所有
+  // 这里假设允许读取所有以 'reg_' 开头的字段，防止读取 password
+  // if (!key.startsWith('reg_')) return res.status(403).send({ message: "禁止读取敏感字段" });
+
+  try {
+    // 1. 通过 taskId 找到 game_account_id
+    const task = db.prepare('SELECT game_account_id FROM DailyTasks WHERE id = ?').get(taskId);
+    if (!task) return res.status(404).send({ message: "任务不存在" });
+
+    // 2. 动态构建 SQL 读取该列
+    // 注意：column name 不能参数化，必须校验以防注入
+    if (!/^[a-zA-Z0-9_]+$/.test(key)) return res.status(400).send({ message: "Key 格式非法" });
+
+    // 检查列是否存在
+    const columns = db.pragma(`table_info(GameAccounts)`).map(c => c.name);
+    if (!columns.includes(key)) {
+      return res.status(404).send({ message: `字段 ${key} 不存在` });
+    }
+
+    const stmt = db.prepare(`SELECT ${key} as val FROM GameAccounts WHERE id = ?`);
+    const result = stmt.get(task.game_account_id);
+
+    res.json({ key: key, value: result ? result.val : null });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ message: "读取失败" });
+  }
+};
+
+// 更新指定任务对应账号的某个字段值
+exports.updateAccountKV = (req, res) => {
+  const { taskId, key, value } = req.body;
+
+  if (!taskId || !key) return res.status(400).send({ message: "taskId 和 key 必填" });
+
+  // 同样的安全校验
+  if (!/^[a-zA-Z0-9_]+$/.test(key)) return res.status(400).send({ message: "Key 格式非法" });
+
+  try {
+    const task = db.prepare('SELECT game_account_id FROM DailyTasks WHERE id = ?').get(taskId);
+    if (!task) return res.status(404).send({ message: "任务不存在" });
+
+    // 检查列是否存在，不存在则报错（或者您可以选择自动创建，但动态DDL有风险，建议报错让管理员先去后台加字段）
+    const columns = db.pragma(`table_info(GameAccounts)`).map(c => c.name);
+    if (!columns.includes(key)) {
+      return res.status(404).send({ message: `字段 ${key} 在数据库中不存在，请先在管理员后台添加该字段。` });
+    }
+
+    const stmt = db.prepare(`UPDATE GameAccounts SET ${key} = ? WHERE id = ?`);
+    stmt.run(value, task.game_account_id);
+
+    res.json({ message: "更新成功" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ message: "更新失败" });
+  }
+};
+
+exports.appendLog = (req, res) => {
+  const { taskId, logLine } = req.body;
+
+  if (!taskId || !logLine) return res.status(400).send({ message: "taskId 和 logLine 必填" });
+
+  try {
+    // 使用 SQLite 的字符串连接操作符 || 来追加日志
+    // 并加上时间戳和换行
+    // const timestamp = new Date().toLocaleString("en-US", { timeZone: "Asia/Shanghai" });
+    const formattedLog = `${ logLine }\n`; // `[${timestamp}] ${logLine}\n`;
+
+    const stmt = db.prepare(`
+      UPDATE DailyTasks 
+      SET log_details = COALESCE(log_details, '') || ? 
+      WHERE id = ? AND status = 'RUNNING'
+    `);
+
+    const info = stmt.run(formattedLog, taskId);
+
+    if (info.changes === 0) {
+      // 任务可能已经结束或不存在
+      return res.status(404).send({ message: "任务未找到或不在运行中" });
+    }
+
+    res.json({ message: "日志已追加" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ message: "日志追加失败" });
   }
 };

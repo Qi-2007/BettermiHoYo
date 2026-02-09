@@ -69,18 +69,48 @@ exports.addAccount = (req, res) => {
     return res.status(400).send({ message: "请填写完整信息" });
   }
 
-  // 加密密码
+  const { encrypt } = require('../utils/crypto');
   const encryptedPwd = encrypt(game_password);
 
-  const stmt = db.prepare(`
-    INSERT INTO GameAccounts (user_id, game_type, game_username, game_password_encrypted, settings_json)
-    VALUES (?, ?, ?, ?, ?)
-  `);
+  // 使用事务：确保账号创建和任务生成同时成功，或者同时失败
+  const transaction = db.transaction(() => {
+    // 1. 插入账号
+    const stmtAccount = db.prepare(`
+      INSERT INTO GameAccounts (user_id, game_type, game_username, game_password_encrypted, settings_json)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+
+    // 这里如果 settings_json 是对象，需要 stringify；如果是空则给 '{}'
+    const settingsStr = settings_json ? JSON.stringify(settings_json) : '{}';
+
+    const info = stmtAccount.run(userId, game_type, game_username, encryptedPwd, settingsStr);
+    const newAccountId = info.lastInsertRowid;
+
+    // 2. 生成当天的任务
+    const today = getBeijingDateString();
+
+    // 检查一下是否莫名其妙已经有了
+    const stmtCheck = db.prepare('SELECT id FROM DailyTasks WHERE game_account_id = ? AND task_date = ?');
+    if (!stmtCheck.get(newAccountId, today)) {
+      const stmtTask = db.prepare(`
+        INSERT INTO DailyTasks (game_account_id, task_date, status, log_details) 
+        VALUES (?, ?, 'PENDING', ?)
+      `);
+      stmtTask.run(newAccountId, today, '[System] 账号创建，自动生成首日任务。');
+    }
+
+    return newAccountId;
+  });
 
   try {
-    const info = stmt.run(userId, game_type, game_username, encryptedPwd, JSON.stringify(settings_json || {}));
-    res.status(201).json({ id: info.lastInsertRowid, message: "添加成功" });
+    const newId = transaction();
+    res.status(201).json({ id: newId, message: "账号添加成功，并已生成今日任务" });
   } catch (err) {
+    console.error(err);
+    // 处理唯一性约束冲突等错误
+    if (err.message.includes('UNIQUE constraint failed')) {
+      return res.status(409).send({ message: "该账号已存在" });
+    }
     res.status(500).send({ message: err.message });
   }
 };

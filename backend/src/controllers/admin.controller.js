@@ -92,9 +92,47 @@ exports.togglePlug = async (req, res) => {
 // --- 面向 BGI-Agent 的操作 ---
 
 exports.receiveHeartbeat = (req, res) => {
-  // req.body 就是 BGI-Agent 发送过来的 JSON 数据
+  // 1. 更新心跳
   HeartbeatService.updateStatus(req.body);
-  res.status(200).send({ message: "Heartbeat received" });
+
+  // 2. 检查待通知指令
+  // 逻辑：状态为 PENDING，且 (从未通知 OR 上次通知超过 5 分钟)
+  const TIMEOUT_MINUTES = 5;
+
+  const stmt = db.prepare(`
+    SELECT id, command_type 
+    FROM SystemCommands 
+    WHERE status = 'PENDING' 
+    AND (
+      last_notified_at IS NULL 
+      OR last_notified_at < datetime('now', '-${TIMEOUT_MINUTES} minutes')
+    )
+    LIMIT 1 -- 每次心跳只处理一条指令，避免并发混乱
+  `);
+
+  const pendingCmd = stmt.get();
+
+  const response = { message: "Heartbeat received" };
+
+  if (pendingCmd) {
+    // 3. 构造通知内容nn
+    response.command = "newtask";
+    response.payload = {
+      type: pendingCmd.command_type, // 告诉 Agent 是哪种类型的任务
+      id: pendingCmd.id // 可选，方便 Agent 打印日志
+    };
+
+    // 4. 更新 last_notified_at，防止立即重复通知
+    db.prepare(`
+      UPDATE SystemCommands 
+      SET last_notified_at = CURRENT_TIMESTAMP 
+      WHERE id = ?
+    `).run(pendingCmd.id);
+
+    console.log(`[Heartbeat] Notifying Agent about command ${pendingCmd.id} (${pendingCmd.command_type})`);
+  }
+
+  res.status(200).send(response);
 };
 
 // --- 字段元数据管理 ---
@@ -128,7 +166,7 @@ exports.deleteFieldOption = (req, res) => {
 };
 
 
-// --- 新增：字段基础配置管理 (FieldConfig) ---
+// --- 字段基础配置管理 (FieldConfig) ---
 
 // 获取所有字段显示配置
 exports.getFieldConfigs = (req, res) => {
@@ -225,4 +263,84 @@ exports.addDatabaseColumn = (req, res) => {
     console.error(error);
     res.status(500).send({ message: "添加字段失败: " + error.message });
   }
+};
+
+// --- 系统指令系统 ---
+
+// 1. 下发指令 (管理员调用)
+exports.createCommand = (req, res) => {
+  const { type, payload } = req.body;
+  if (!type) return res.status(400).send({ message: "指令类型必填" });
+
+  const stmt = db.prepare(`
+    INSERT INTO SystemCommands (command_type, payload, status, log_details)
+    VALUES (?, ?, 'PENDING', '指令已创建，等待 Agent 领取...')
+  `);
+
+  const info = stmt.run(type, JSON.stringify(payload || {}));
+  res.json({ id: info.lastInsertRowid, message: "指令下发成功" });
+};
+
+// 2. 获取待执行指令 (BGI-Agent 调用)
+exports.getPendingCommand = (req, res) => {
+  const { type } = req.query; // 允许 Updater 传入 ?type=UPDATE_GAME
+
+  const transaction = db.transaction(() => {
+    let query = "SELECT * FROM SystemCommands WHERE status = 'PENDING'";
+    const params = [];
+
+    if (type) {
+      query += " AND command_type = ?";
+      params.push(type);
+    }
+
+    query += " ORDER BY id LIMIT 1"; // 取最早的一条
+
+    const cmd = db.prepare(query).get(...params);
+
+    if (!cmd) return null;
+
+    // 标记为 RUNNING，防止被重复领取
+    db.prepare("UPDATE SystemCommands SET status = 'RUNNING', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(cmd.id);
+
+    // 解析 payload，方便 Updater 使用
+    return {
+      ...cmd,
+      payload: JSON.parse(cmd.payload || '{}')
+    };
+  });
+
+  const command = transaction();
+
+  if (command) {
+    res.json(command);
+  } else {
+    res.status(204).send(); // 无指令
+  }
+};
+
+// 3. 汇报进度 (Updater 调用)
+exports.reportCommandProgress = (req, res) => {
+  const { id, status, progress, log } = req.body;
+
+  if (!id || !status) return res.status(400).send({ message: "参数不全" });
+
+  // 追加日志
+  const logAppend = log ? `\n[${new Date().toLocaleTimeString()}] ${log}` : '';
+
+  const stmt = db.prepare(`
+    UPDATE SystemCommands 
+    SET status = ?, progress = ?, log_details = COALESCE(log_details, '') || ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `);
+
+  stmt.run(status, progress || 0, logAppend, id);
+  res.json({ message: "进度已更新" });
+};
+
+// 4. 获取指令列表 (前端轮询用)
+exports.getCommandsList = (req, res) => {
+  // 只返回最近 10 条
+  const stmt = db.prepare("SELECT * FROM SystemCommands ORDER BY id DESC LIMIT 10");
+  res.json(stmt.all());
 };

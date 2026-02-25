@@ -29,6 +29,11 @@ const passwordDialogVisible = ref(false);
 const tempPassword = ref('');
 const editingUserId = ref<number | null>(null);
 
+// --- 系统指令相关状态 ---
+const commands = ref<any[]>([]);
+const commandForm = ref({ type: 'UPDATE_GAME', payloadStr: '{}' }); // payloadStr 用于绑定 JSON 字符串
+const isSendingCommand = ref(false);
+
 // --- 1. 系统监控与控制逻辑 ---
 
 const fetchStatus = async () => {
@@ -226,12 +231,58 @@ const handleResetPass = async () => {
     passwordDialogVisible.value = false;
   } catch (e) { ElMessage.error('修改失败'); }
 };
+// --- 系统指令相关状态 ---
+
+// 预定义的任务类型 (方便选择)
+const commandTypes = [
+  { label: '更新游戏 (UPDATE_GAME)', value: 'UPDATE_GAME' },
+  { label: '重启电脑 (RESTART_COMPUTER)', value: 'RESTART_COMPUTER' },
+  { label: '执行脚本 (EXECUTE_SCRIPT)', value: 'EXECUTE_SCRIPT' }
+];
+
+// 获取指令列表
+const fetchCommands = async () => {
+  try {
+    const res = await api.getCommandsList();
+    commands.value = res.data;
+  } catch (e) { console.error(e); }
+};
+
+// 下发指令
+const handleSendCommand = async () => {
+  if (!commandForm.value.type) return ElMessage.warning('请选择任务类型');
+
+  let payload = {};
+  try {
+    payload = JSON.parse(commandForm.value.payloadStr);
+  } catch (e) {
+    return ElMessage.error('参数必须是有效的 JSON 格式');
+  }
+
+  isSendingCommand.value = true;
+  try {
+    await api.createCommand({
+      type: commandForm.value.type,
+      payload: payload
+    });
+    ElMessage.success('指令已下发');
+    fetchCommands(); // 刷新列表
+    // 重置表单 (类型保留，参数重置)
+    commandForm.value.payloadStr = '{}';
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.message || '下发失败');
+  } finally {
+    isSendingCommand.value = false;
+  }
+};
 
 // --- 生命周期 ---
 onMounted(() => {
   fetchStatus();
   fetchMetadata();
   fetchUsers();
+  fetchCommands();
+  setInterval(fetchCommands, 5000); // 5秒轮询一次状态
   pollInterval = setInterval(fetchStatus, 5000);
 });
 
@@ -431,6 +482,68 @@ onUnmounted(() => {
             <el-button type="primary" @click="handleResetPass">确定</el-button>
           </template>
         </el-dialog>
+      </el-tab-pane>
+      <!-- Tab 4: 系统维护 -->
+      <el-tab-pane label="系统维护" name="maintenance">
+        <el-row :gutter="20">
+          <!-- 左侧：下发任务 -->
+          <el-col :xs="24" :md="8" class="mb-20">
+            <el-card>
+              <template #header><span>下发系统指令</span></template>
+
+              <el-form label-position="top">
+                <el-form-item label="任务类型">
+                  <el-select v-model="commandForm.type" placeholder="请选择" style="width: 100%">
+                    <el-option v-for="item in commandTypes" :key="item.value" :label="item.label" :value="item.value" />
+                  </el-select>
+                </el-form-item>
+
+                <el-form-item label="参数 (JSON)">
+                  <el-input v-model="commandForm.payloadStr" type="textarea" :rows="4"
+                    placeholder='例如: {"game": "Genshin", "force": true}' />
+                </el-form-item>
+
+                <el-button type="primary" @click="handleSendCommand" :loading="isSendingCommand" style="width: 100%">
+                  发送指令
+                </el-button>
+              </el-form>
+            </el-card>
+          </el-col>
+
+          <!-- 右侧：执行记录 -->
+          <el-col :xs="24" :md="16">
+            <el-card>
+              <template #header>
+                <div class="card-header">
+                  <span>指令执行历史</span>
+                  <el-button circle :icon="Refresh" size="small" @click="fetchCommands"></el-button>
+                </div>
+              </template>
+
+              <el-table :data="commands" stripe height="400" size="small">
+                <el-table-column prop="id" label="ID" width="50" />
+                <el-table-column prop="command_type" label="类型" width="120" show-overflow-tooltip />
+                <el-table-column label="状态" width="100">
+                  <template #default="{ row }">
+                    <el-tag
+                      :type="row.status === 'SUCCESS' ? 'success' : row.status === 'FAILED' ? 'danger' : row.status === 'RUNNING' ? 'primary' : 'info'">
+                      {{ row.status }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="进度" width="100">
+                  <template #default="{ row }">
+                    <el-progress :percentage="row.progress || 0"
+                      :status="row.status === 'SUCCESS' ? 'success' : row.status === 'FAILED' ? 'exception' : ''" />
+                  </template>
+                </el-table-column>
+                <el-table-column prop="log_details" label="日志" show-overflow-tooltip />
+                <el-table-column prop="created_at" label="时间" width="140" />
+              </el-table>
+            </el-card>
+          </el-col>
+        </el-row>
+
       </el-tab-pane>
     </el-tabs>
   </div>

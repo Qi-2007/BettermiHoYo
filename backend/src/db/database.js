@@ -63,6 +63,19 @@ function initDb() {
     display_order INTEGER DEFAULT 0  -- 排序
   );
   `;
+  const createSystemCommandsTable = `
+    CREATE TABLE IF NOT EXISTS SystemCommands (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      command_type TEXT NOT NULL,
+      payload TEXT,
+      status TEXT DEFAULT 'PENDING',
+      progress INTEGER DEFAULT 0,
+      log_details TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      last_notified_at DATETIME
+    );
+  `;
   // Use db.exec to run multiple statements
   db.exec(`
     ${createUsersTable}
@@ -70,6 +83,7 @@ function initDb() {
     ${createDailyTasksTable}
     ${createFieldMetadataTable}
     ${createFieldConfigTable}
+    ${createSystemCommandsTable}
   `);
 
   console.log('Database initialized successfully.');

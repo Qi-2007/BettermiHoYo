@@ -76,7 +76,6 @@ export default {
   triggerShutdown() {
     return apiClient.post('/admin/shutdown');
   },
-  // 新增
   togglePlugSwitch() {
     return apiClient.post('/admin/plug/toggle');
   },
@@ -115,4 +114,11 @@ export default {
   createUser(data: any) { return apiClient.post('/users', data); },
   deleteUser(id: number) { return apiClient.delete(`/users/${id}`); },
   resetUserPassword(id: number, password: string) { return apiClient.put(`/users/${id}/password`, { password }); },
+  // Command Management
+  createCommand(data: { type: string; payload?: any }) {
+    return apiClient.post('/admin/commands', data);
+  },
+  getCommandsList() {
+    return apiClient.get('/admin/commands');
+  }
 };

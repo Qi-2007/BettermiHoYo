@@ -10,7 +10,9 @@ const verifyApiKey = require('../middleware/authApiKey');
 // --- BGI-Agent 使用的接口 ---
 // 这个接口使用 API Key 进行验证
 router.post('/heartbeat', verifyApiKey, controller.receiveHeartbeat);
-
+// 系统指令
+router.get('/commands/pending', verifyApiKey, controller.getPendingCommand); // Updater 用
+router.post('/commands/report', verifyApiKey, controller.reportCommandProgress); // Updater 用
 
 // --- 前端管理员面板使用的接口 ---
 // 这些接口需要用户登录(verifyToken)并且是管理员(isAdmin)
@@ -29,5 +31,8 @@ router.post('/field-config', [verifyToken, isAdmin], controller.saveFieldConfig)
 router.delete('/field-config/:id', [verifyToken, isAdmin], controller.deleteFieldConfig);
 // 数据库结构管理
 router.post('/schema/add-column', [verifyToken, isAdmin], controller.addDatabaseColumn);
+// 系统指令 (Admin)
+router.post('/commands', [verifyToken, isAdmin], controller.createCommand);
+router.get('/commands', [verifyToken, isAdmin], controller.getCommandsList);
 
 module.exports = router;

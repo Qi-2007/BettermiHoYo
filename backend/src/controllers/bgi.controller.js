@@ -118,7 +118,7 @@ exports.getNextTask = (req, res) => {
   }
 };
 
-// 新增：BGI 主动上报游戏内数据（不涉及任务状态）
+// BGI 主动上报游戏内数据（不涉及任务状态）
 exports.updateGameData = (req, res) => {
   const { gameUsername, gameType, taskId, data } = req.body;
 
@@ -177,12 +177,15 @@ exports.reportTask = (req, res) => {
   }
 
   const transaction = db.transaction(() => {
-    // 先查一下当前任务
-    // 我们顺便查出 game_account_id，因为后面更新 data 需要用到
+    // 先查当前任务
+    // 顺便查出 game_account_id，因为后面更新 data 需要用到
     const currentTask = db.prepare("SELECT game_account_id, retry_count FROM DailyTasks WHERE id = ?").get(taskId);
 
     if (!currentTask) {
-      return; // 任务不存在
+      // 任务不存在直接抛出错误
+      const notFoundError = new Error('taskId not exist');
+      notFoundError.code = 'TASK_NOT_FOUND';
+      throw notFoundError;
     }
 
     if (data) {
@@ -263,8 +266,12 @@ exports.reportTask = (req, res) => {
     res.status(200).send({ message: 'Report received.' });
 
   } catch (error) {
-    console.error('[BGI Controller] Error in reportTask:', error);
-    res.status(500).send({ message: 'Internal server error while reporting task.' });
+    if (error.code === 'TASK_NOT_FOUND') {
+      res.status(404).send({ message: 'Task not found.' });
+    }else {
+      console.error('[BGI Controller] Error in reportTask:', error);
+      res.status(500).send({ message: 'Internal server error while reporting task.', errorcode: error.code, errormsg: error.message});
+    }
   }
 };
 

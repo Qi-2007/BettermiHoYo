@@ -172,8 +172,8 @@ exports.updateGameData = (req, res) => {
 exports.reportTask = (req, res) => {
   const { taskId, status, logDetails, data } = req.body;
 
-  if (!taskId || !status || !['SUCCESS', 'FAILED'].includes(status)) {
-    return res.status(400).send({ message: 'Invalid request body. Requires taskId and status (SUCCESS/FAILED).' });
+  if (!taskId || !status || !['SUCCESS', 'FAILED', 'PENDING'].includes(status)) {
+    return res.status(400).send({ message: 'Invalid request body. Requires taskId and status (SUCCESS/FAILED/PENDING).' });
   }
 
   const transaction = db.transaction(() => {
@@ -244,7 +244,17 @@ exports.reportTask = (req, res) => {
 
         console.log(`Task ${taskId} failed permanently.`);
       }
-    }
+    } else if (status === 'PENDING') {
+      // 主动上报 PENDING，进入重试队列
+      db.prepare(`
+        UPDATE DailyTasks 
+        SET 
+          status = 'PENDING', 
+          retry_count = 1,
+          log_details = COALESCE(log_details, '') || ?
+        WHERE id = ?
+      `).run(logToAppend, taskId);
+    } 
   });
 
   try {
